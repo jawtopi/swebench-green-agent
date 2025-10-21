@@ -17,6 +17,116 @@ This Green Agent:
 
 This is a Green Agent - it judges code quality, it doesn't write code.
 
+## Architecture
+
+### System Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     AgentBeats Ecosystem                     │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌──────────────┐              ┌──────────────┐            │
+│  │ White Agent  │              │ Green Agent  │            │
+│  │ (Participant)│              │   (Judge)    │            │
+│  │              │              │              │            │
+│  │ - GPT-4      │   Proposes   │ - SWE-Bench  │            │
+│  │ - Claude     │─────Patch───▶│ - Evaluator  │            │
+│  │ - Gemini     │              │ - This Repo  │            │
+│  │              │              │              │            │
+│  └──────────────┘              └──────────────┘            │
+│                                       │                     │
+│                                       ▼                     │
+│                              ┌─────────────────┐            │
+│                              │ Objective Score │            │
+│                              │  PASS or FAIL   │            │
+│                              └─────────────────┘            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Evaluation Workflow
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Step 1: Input                                                │
+│ ────────────────────────────────────────────────────────────│
+│  POST /task                                                  │
+│  {                                                           │
+│    "task_id": "numpy-1234",        ← SWE-Bench task         │
+│    "patch_choice": "good"          ← Code patch to test     │
+│  }                                                           │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Step 2: Sandbox Creation                                     │
+│ ────────────────────────────────────────────────────────────│
+│  Create isolated environment: runs/numpy-1234-good/          │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Step 3: Patch Application                                    │
+│ ────────────────────────────────────────────────────────────│
+│  Apply patch: data/tasks/numpy-1234/good.patch               │
+│                                                              │
+│  Success? ────No────▶ Return FAIL (apply_error)             │
+│      │                                                       │
+│     Yes                                                      │
+│      │                                                       │
+└──────┼──────────────────────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Step 4: Test Execution                                       │
+│ ────────────────────────────────────────────────────────────│
+│  Run automated test suite                                    │
+│                                                              │
+│  test_01 ... PASSED                                          │
+│  test_02 ... PASSED                                          │
+│  ...                                                         │
+│  test_12 ... PASSED                                          │
+│                                                              │
+│  Result: 12/12 tests passed                                  │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Step 5: Verdict Determination                                │
+│ ────────────────────────────────────────────────────────────│
+│  IF tests_passed == total_tests:                             │
+│      verdict = "PASS"                                        │
+│  ELSE:                                                       │
+│      verdict = "FAIL"                                        │
+│      failure_type = "test_failure"                           │
+└──────────────────────────────────────────────────────────────┘
+                           │
+                           ▼
+┌──────────────────────────────────────────────────────────────┐
+│ Step 6: Output                                               │
+│ ────────────────────────────────────────────────────────────│
+│  {                                                           │
+│    "task_id": "numpy-1234",                                  │
+│    "tests_passed": 12,                                       │
+│    "total_tests": 12,                                        │
+│    "verdict": "PASS",                ← Objective result      │
+│    "runtime_ms": 106,                                        │
+│    "failure_type": null,                                     │
+│    "logs_uri": "/logs/numpy-1234-good.txt"                   │
+│  }                                                           │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Key Components
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| **FastAPI Server** | HTTP API with A2A endpoints | `src/app.py` |
+| **Test Runner** | Orchestrates evaluation workflow | `src/harness/runner.py` |
+| **Sandbox Manager** | Isolates each evaluation | `src/harness/sandbox.py` |
+| **A2A Endpoints** | `/card`, `/reset`, `/task` | `src/a2a/` |
+| **Demo Tasks** | Sample patches from SWE-Bench | `data/tasks/` |
+
 ## Features
 
 ✅ **A2A-Inspired Protocol** - Standard endpoints for agent discovery and task execution

@@ -1,0 +1,39 @@
+name = "swebench_green_agent"
+description = "The assessment hosting agent for SWE-bench software engineering benchmark. Supports parallel batch evaluation of up to 2294 tasks."
+version = "1.0.0"
+
+defaultInputModes = ["text"]
+defaultOutputModes = ["text"]
+
+[capabilities]
+streaming = false
+
+[[skills]]
+id = "host_assess_swebench"
+name = "SWE-bench assessment hosting"
+description = """
+Assess the software engineering ability of an agent by evaluating patches against the SWE-bench benchmark.
+The green agent receives task configurations, sends problem statements to white agents, receives patches,
+and evaluates them using Docker-based test execution.
+
+Supports:
+- SWE-bench Lite (300 tasks), Verified (500 tasks), and Full (2294 tasks)
+- Parallel batch evaluation with configurable max_workers
+- Docker-based isolated test execution
+"""
+tags = ["green agent", "assessment hosting", "swe-bench", "software engineering", "patch evaluation", "batch evaluation"]
+examples = ["""
+Your task is to run SWE-bench evaluation for the agent located at:
+<white_agent_url>
+http://localhost:9002/
+</white_agent_url>
+You should use the following task configuration:
+<task_config>
+{
+  "dataset": "verified",
+  "task_ids": null,
+  "timeout": 600,
+  "max_workers": 8
+}
+</task_config>
+"""]

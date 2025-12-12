@@ -1,140 +1,59 @@
 # SWE-Bench Green Agent
 
-A Green Agent for the AgentBeats platform that evaluates code patches using the SWE-Bench benchmark. Acts as an objective "judge" that determines whether a code patch correctly fixes a bug by running automated tests.
+A Green Agent for the AgentBeats platform that evaluates code patches using the SWE-Bench benchmark. Acts as an orchestrator that sends tasks to white agents, collects their patches, and evaluates them objectively.
 
 ## Overview
 
 This Green Agent:
-- **Evaluates** code patches for correctness using automated tests
-- **Exposes** A2A (Agent-to-Agent) protocol-inspired endpoints
-- **Returns** deterministic verdicts (PASS/FAIL) with detailed metrics
-- **Demonstrates** reproducible evaluation with sandbox isolation
+- **Orchestrates** SWE-bench evaluations by calling white agents with problem descriptions
+- **Collects** patches from white agent responses
+- **Evaluates** patches using Docker-based test execution
+- **Reports** deterministic verdicts (PASS/FAIL) with detailed metrics
+- **Supports** the full SWE-bench suite (Lite: 300, Verified: 500, Full: 2294 tasks)
 
-### Green vs White Agents
-
-- **White Agents** (participants): AI models that generate code patches to fix bugs
-- **Green Agents** (judges): Services that evaluate those patches objectively
-
-This is a Green Agent - it judges code quality, it doesn't write code.
-
-## Architecture
-
-### System Overview
+### Green vs White Agents (AgentBeats Architecture)
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     AgentBeats Ecosystem                     │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────┐              ┌──────────────┐            │
-│  │ White Agent  │              │ Green Agent  │            │
-│  │ (Participant)│              │   (Judge)    │            │
-│  │              │              │              │            │
-│  │ - GPT-4      │   Proposes   │ - SWE-Bench  │            │
-│  │ - Claude     │─────Patch───▶│ - Evaluator  │            │
-│  │ - Gemini     │              │ - This Repo  │            │
-│  │              │              │              │            │
-│  └──────────────┘              └──────────────┘            │
-│                                       │                     │
-│                                       ▼                     │
-│                              ┌─────────────────┐            │
-│                              │ Objective Score │            │
-│                              │  PASS or FAIL   │            │
-│                              └─────────────────┘            │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    AgentBeats Platform                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  ┌──────────────────┐         ┌──────────────────┐             │
+│  │  AgentBeats      │ Task    │  Green Agent     │             │
+│  │  Platform        │────────▶│  (This Repo)     │             │
+│  └──────────────────┘         └────────┬─────────┘             │
+│                                        │                        │
+│                               Problem  │  Calls white agent     │
+│                               Statement│  with task details     │
+│                                        ▼                        │
+│                               ┌──────────────────┐             │
+│                               │  White Agent     │             │
+│                               │  (Participant)   │             │
+│                               │  - Claude        │             │
+│                               │  - GPT-4         │             │
+│                               │  - Custom Agent  │             │
+│                               └────────┬─────────┘             │
+│                                        │                        │
+│                               Patch    │  Returns unified diff  │
+│                               Response │  in <patch> tags       │
+│                                        ▼                        │
+│                               ┌──────────────────┐             │
+│                               │  Green Agent     │             │
+│                               │  Evaluates in    │             │
+│                               │  Docker + SWE-   │             │
+│                               │  bench harness   │             │
+│                               └────────┬─────────┘             │
+│                                        │                        │
+│                                        ▼                        │
+│                               ┌──────────────────┐             │
+│                               │ Objective Score  │             │
+│                               │  PASS or FAIL    │             │
+│                               └──────────────────┘             │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-### Evaluation Workflow
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│ Step 1: Input                                                │
-│ ────────────────────────────────────────────────────────────│
-│  POST /task                                                  │
-│  {                                                           │
-│    "task_id": "numpy-1234",        ← SWE-Bench task         │
-│    "patch_choice": "good"          ← Code patch to test     │
-│  }                                                           │
-└──────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Step 2: Sandbox Creation                                     │
-│ ────────────────────────────────────────────────────────────│
-│  Create isolated environment: runs/numpy-1234-good/          │
-└──────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Step 3: Patch Application                                    │
-│ ────────────────────────────────────────────────────────────│
-│  Apply patch: data/tasks/numpy-1234/good.patch               │
-│                                                              │
-│  Success? ────No────▶ Return FAIL (apply_error)             │
-│      │                                                       │
-│     Yes                                                      │
-│      │                                                       │
-└──────┼──────────────────────────────────────────────────────┘
-       │
-       ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Step 4: Test Execution                                       │
-│ ────────────────────────────────────────────────────────────│
-│  Run automated test suite                                    │
-│                                                              │
-│  test_01 ... PASSED                                          │
-│  test_02 ... PASSED                                          │
-│  ...                                                         │
-│  test_12 ... PASSED                                          │
-│                                                              │
-│  Result: 12/12 tests passed                                  │
-└──────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Step 5: Verdict Determination                                │
-│ ────────────────────────────────────────────────────────────│
-│  IF tests_passed == total_tests:                             │
-│      verdict = "PASS"                                        │
-│  ELSE:                                                       │
-│      verdict = "FAIL"                                        │
-│      failure_type = "test_failure"                           │
-└──────────────────────────────────────────────────────────────┘
-                           │
-                           ▼
-┌──────────────────────────────────────────────────────────────┐
-│ Step 6: Output                                               │
-│ ────────────────────────────────────────────────────────────│
-│  {                                                           │
-│    "task_id": "numpy-1234",                                  │
-│    "tests_passed": 12,                                       │
-│    "total_tests": 12,                                        │
-│    "verdict": "PASS",                ← Objective result      │
-│    "runtime_ms": 106,                                        │
-│    "failure_type": null,                                     │
-│    "logs_uri": "/logs/numpy-1234-good.txt"                   │
-│  }                                                           │
-└──────────────────────────────────────────────────────────────┘
-```
-
-### Key Components
-
-| Component | Purpose | Location |
-|-----------|---------|----------|
-| **FastAPI Server** | HTTP API with A2A endpoints | `src/app.py` |
-| **Test Runner** | Orchestrates evaluation workflow | `src/harness/runner.py` |
-| **Sandbox Manager** | Isolates each evaluation | `src/harness/sandbox.py` |
-| **A2A Endpoints** | `/card`, `/reset`, `/task` | `src/a2a/` |
-| **Demo Tasks** | Sample patches from SWE-Bench | `data/tasks/` |
-
-## Features
-
-✅ **A2A-Inspired Protocol** - Standard endpoints for agent discovery and task execution
-✅ **Deterministic Evaluation** - Same patch always produces same verdict
-✅ **Sandbox Isolation** - Each evaluation runs in isolated environment
-✅ **Comprehensive Logging** - Detailed execution logs for every evaluation
-✅ **Multiple Failure Modes** - Distinguishes between patch errors and test failures
-✅ **Docker Support** - Containerized deployment ready
+- **Green Agents** (judges/orchestrators): Send problem descriptions to white agents, collect patches, evaluate them
+- **White Agents** (participants): Receive problem descriptions, generate code patches to fix bugs
 
 ## Quick Start
 
@@ -145,7 +64,7 @@ This is a Green Agent - it judges code quality, it doesn't write code.
 git clone https://github.com/YOUR_USERNAME/swebench-green-agent.git
 cd swebench-green-agent
 
-# Create and activate virtual environment (recommended)
+# Create and activate virtual environment
 python3 -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
@@ -153,170 +72,236 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### Running the Server
+### Check Environment
 
 ```bash
-# Using make
-make run
-
-# Or directly with uvicorn
-uvicorn src.app:app --reload --host 0.0.0.0 --port 8000
+python main.py status
 ```
 
-Server will start at: **http://localhost:8000**
+Expected output:
+```
+Checking SWE-bench environment...
 
-Interactive API docs: **http://localhost:8000/docs**
+[OK] Docker: Docker is available and running
+[OK] SWE-bench: SWE-bench version 4.1.0 is available
+[OK] A2A SDK: a2a-sdk version 0.3.20
+[OK] Datasets: datasets version 4.4.1
 
-## Usage Examples
+[OK] Ready for SWE-bench evaluation
+```
 
-### 1. Get Agent Metadata
+### Running the Green Agent
+
+#### Option 1: A2A Mode (AgentBeats Compatible)
 
 ```bash
-curl http://localhost:8000/card
+# Start the A2A green agent server
+python main.py serve --port 9001
 ```
 
-**Response:**
-```json
-{
-  "name": "SWE-Bench Green Agent",
-  "description": "A minimal Green Agent for AgentBeats...",
-  "model_type": "green",
-  "protocol": "A2A",
-  "version": "1.0.0",
-  "capabilities": ["swe-bench", "patch-evaluation", "test-execution"]
-}
-```
+The agent will be available at `http://localhost:9001` with:
+- Agent card at `/.well-known/agent-card.json`
+- A2A JSON-RPC endpoint for receiving tasks
 
-### 2. Evaluate a Correct Patch (PASS)
+## CLI Commands
 
 ```bash
-curl -X POST http://localhost:8000/task \
-  -H "Content-Type: application/json" \
-  -d '{"task_id": "numpy-1234", "patch_choice": "good"}'
+python main.py --help
 ```
 
-**Response:**
-```json
-{
-  "task_id": "numpy-1234",
-  "tests_passed": 12,
-  "total_tests": 12,
-  "verdict": "PASS",
-  "runtime_ms": 106,
-  "failure_type": null,
-  "logs_uri": "/logs/numpy-1234-good.txt"
-}
-```
+| Command | Description |
+|---------|-------------|
+| `serve` | Start the A2A green agent server |
+| `evaluate` | Send evaluation task to a running green agent |
+| `launch` | Start green agent and send task in one command |
+| `status` | Check environment readiness |
 
-### 3. Evaluate an Incorrect Patch (FAIL)
+### Examples
 
 ```bash
-curl -X POST http://localhost:8000/task \
-  -H "Content-Type: application/json" \
-  -d '{"task_id": "numpy-1234", "patch_choice": "bad"}'
+# Start A2A server
+python main.py serve --host localhost --port 9001
+
+# Check environment
+python main.py status
+
+# Launch evaluation (starts green agent + sends task)
+python main.py launch \
+  --white-agent-url http://localhost:9002 \
+  --task-ids django__django-10914 \
+  --dataset lite
 ```
 
-**Response:**
-```json
-{
-  "task_id": "numpy-1234",
-  "tests_passed": 8,
-  "total_tests": 12,
-  "verdict": "FAIL",
-  "runtime_ms": 105,
-  "failure_type": "test_failure",
-  "logs_uri": "/logs/numpy-1234-bad.txt"
-}
-```
+## Architecture
 
-### 4. View Execution Logs
-
-```bash
-curl http://localhost:8000/logs/numpy-1234-good.txt
-```
-
-### 5. Reset Environment
-
-```bash
-curl -X POST http://localhost:8000/reset
-```
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/` | GET | Service information |
-| `/card` | GET | Agent metadata (A2A discovery) |
-| `/reset` | POST | Clean environment for reproducibility |
-| `/task` | POST | Evaluate a code patch |
-| `/logs/{filename}` | GET | Retrieve execution logs |
-| `/health` | GET | Health check |
-
-## Demo Tasks
-
-The project includes two demo SWE-Bench tasks with pre-made patches:
-
-### Task 1: numpy-1234 (Array Indexing Bug)
-
-**Bug:** Array slicing returns references instead of copies
-**Tests:** 12 total
-
-- **good.patch** → ✅ PASS (12/12 tests)
-- **bad.patch** → ❌ FAIL (8/12 tests, `test_failure`)
-
-### Task 2: django-5678 (Query Optimization)
-
-**Bug:** QuerySet operations not using database indexes
-**Tests:** 8 total
-
-- **good.patch** → ✅ PASS (8/8 tests)
-- **bad.patch** → ❌ FAIL (0/8 tests, `apply_error`)
-
-## Verdict Logic
-
-### PASS
-All tests pass successfully.
-
-### FAIL
-One or more tests fail OR patch cannot be applied.
-
-**Failure Types:**
-- `apply_error` - Patch has formatting errors and won't apply to codebase
-- `test_failure` - Patch applied successfully but tests failed
-
-## Project Structure
+### Project Structure
 
 ```
 swebench-green-agent/
+├── main.py                           # CLI entry point
+├── requirements.txt                  # Dependencies
 ├── src/
-│   ├── app.py                 # FastAPI server & routes
-│   ├── schemas.py             # Pydantic request/response models
-│   ├── core/
-│   │   ├── config.py          # Configuration & constants
-│   │   ├── logger.py          # Logging setup
-│   │   └── utils.py           # Helper utilities
-│   ├── harness/
-│   │   ├── runner.py          # Test execution engine
-│   │   └── sandbox.py         # Sandbox isolation
-│   └── a2a/
-│       ├── card.py            # GET /card endpoint
-│       ├── reset.py           # POST /reset endpoint
-│       └── task.py            # POST /task endpoint
+│   ├── green_agent/                  # A2A SDK implementation
+│   │   ├── __init__.py
+│   │   ├── executor.py               # SWEBenchGreenAgentExecutor
+│   │   ├── a2a_utils.py              # A2A communication utilities
+│   │   └── swebench_green_agent.toml # Agent card configuration
+│   ├── core/                         # Configuration & utilities
+│   │   ├── config.py
+│   │   ├── logger.py
+│   │   └── utils.py
+│   └── harness/                      # SWE-bench evaluation core
+│       ├── swebench_runner.py        # SWE-bench harness integration
+│       └── sandbox.py                # Docker sandbox management
+├── examples/                         # Example scripts
+│   ├── mock_white_agent.py           # Mock white agent for testing
+│   ├── test_orchestration.py         # Full orchestration test
+│   ├── test_a2a_flow.py              # A2A communication test
+│   └── test_batch_parallel.py        # Batch parallel test
 ├── tests/
-│   └── test_app.py            # Automated test suite (10 tests)
-├── data/
-│   └── tasks/                 # Demo SWE-Bench tasks
-│       ├── numpy-1234/
-│       └── django-5678/
-├── logs/                      # Execution logs (generated)
-├── runs/                      # Sandbox directories (generated)
-├── requirements.txt           # Python dependencies
-├── Dockerfile                 # Container definition
-├── Makefile                   # Build commands
-└── README.md                  # This file
+│   └── test_swebench_integration.py
+└── data/
+    └── swebench_cache/               # Dataset cache
+```
+
+### Key Components
+
+| Component | Purpose | Location |
+|-----------|---------|----------|
+| **CLI** | Command-line interface | `main.py` |
+| **A2A Executor** | AgentBeats-compatible orchestrator | `src/green_agent/executor.py` |
+| **A2A Utils** | Communication with white agents | `src/green_agent/a2a_utils.py` |
+| **SWE-bench Runner** | Docker-based test execution | `src/harness/swebench_runner.py` |
+| **Sandbox** | Docker container management | `src/harness/sandbox.py` |
+
+## A2A Protocol (AgentBeats Mode)
+
+### Task Format
+
+The green agent receives tasks with XML-like tags:
+
+```xml
+Your task is to run SWE-bench evaluation for the agent located at:
+<white_agent_url>
+http://localhost:9002/
+</white_agent_url>
+You should use the following task configuration:
+<task_config>
+{
+  "dataset": "verified",
+  "task_ids": null,
+  "timeout": 600,
+  "max_workers": 8
+}
+</task_config>
+```
+
+### Task Configuration Options
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| `dataset` | SWE-bench dataset: `lite`, `verified`, or `full` | `lite` |
+| `task_ids` | List of specific task IDs, or `null` for all | `null` |
+| `timeout` | Timeout per task in seconds | `600` |
+| `max_workers` | Parallel evaluation workers | `4` |
+
+### Batch Evaluation
+
+The green agent supports **parallel batch evaluation** for efficiently processing the full SWE-bench suite:
+
+- **Parallel white agent calls**: Multiple tasks sent to white agent concurrently
+- **Parallel Docker evaluation**: Multiple patches evaluated in parallel
+- **Configurable concurrency**: Set `max_workers` based on your resources
+- **Progress updates**: Real-time progress reported to platform
+
+Example for full SWE-bench Verified (500 tasks):
+```json
+{
+  "dataset": "verified",
+  "task_ids": null,
+  "timeout": 600,
+  "max_workers": 8
+}
+```
+
+Estimated times with 8 workers:
+| Dataset | Tasks | Est. Time |
+|---------|-------|-----------|
+| Lite | 300 | ~30-60 min |
+| Verified | 500 | ~1-2 hours |
+| Full | 2,294 | ~4-8 hours |
+
+### White Agent Response Format
+
+White agents must return patches in `<patch>` tags:
+
+```xml
+Here's the fix for the issue:
+
+<patch>
+diff --git a/django/conf/global_settings.py b/django/conf/global_settings.py
+--- a/django/conf/global_settings.py
++++ b/django/conf/global_settings.py
+@@ -303,6 +303,7 @@ def configure(self):
++    # Fix for issue 10914
+     self.configured = True
+</patch>
+```
+
+### Evaluation Flow
+
+1. Green agent receives task from AgentBeats platform
+2. Loads SWE-bench task data from HuggingFace
+3. Sends problem statement to white agent via A2A
+4. Parses `<patch>` from white agent response
+5. Evaluates patch using Docker + SWE-bench harness
+6. Reports metrics back to platform
+
+## SWE-bench Datasets
+
+| Dataset | Tasks | HuggingFace ID |
+|---------|-------|----------------|
+| Lite | 300 | `princeton-nlp/SWE-bench_Lite` |
+| Verified | 500 | `princeton-nlp/SWE-bench_Verified` |
+| Full | 2,294 | `princeton-nlp/SWE-bench` |
+
+## Configuration
+
+### Environment Variables
+
+```bash
+# SWE-bench settings
+export SWEBENCH_DATASET_SPLIT=lite      # lite, verified, or test
+export SWEBENCH_TIMEOUT_SECONDS=600     # Per-task timeout
+export SWEBENCH_MAX_WORKERS=4           # Parallel workers for batch
+export SWEBENCH_MAX_BATCH_SIZE=500      # Max tasks per batch
+export SWEBENCH_DOCKER_NAMESPACE=swebench
 ```
 
 ## Development
+
+### Local Testing
+
+Test the full orchestration locally with the mock white agent:
+
+```bash
+# Option 1: Automated test (recommended)
+python -m examples.test_orchestration --skip-eval
+
+# Option 2: Manual testing (three terminals)
+
+# Terminal 1 - Mock white agent
+python -m examples.mock_white_agent --port 9002
+
+# Terminal 2 - Green agent
+python main.py serve --port 9001
+
+# Terminal 3 - Send task
+python main.py evaluate \
+  --white-agent-url http://localhost:9002 \
+  --task-ids django__django-10914 \
+  --dataset lite
+```
 
 ### Running Tests
 
@@ -324,79 +309,23 @@ swebench-green-agent/
 # Run all tests
 pytest -v
 
-# Run specific test
-pytest tests/test_app.py::test_card -v
-
 # Run with coverage
 pytest --cov=src tests/
 ```
 
-**All 10 tests pass ✅**
+### Requirements
 
-### Available Commands
+- Python 3.11+
+- Docker (for SWE-bench evaluation)
+- ~100MB disk space (excluding venv)
 
-```bash
-make venv          # Create virtual environment
-make install       # Install dependencies
-make run           # Start server
-make test          # Run tests
-make clean         # Clean logs and runs
-make docker-build  # Build Docker image
-make docker-run    # Run in Docker
-```
+### Dependencies
 
-### Docker
-
-**Build:**
-```bash
-docker build -t swebench-green-agent .
-```
-
-**Run:**
-```bash
-docker run -p 8000:8000 swebench-green-agent
-```
-
-## Technical Details
-
-### Stack
-
-- **Language:** Python 3.11+
-- **Framework:** FastAPI 0.115+
-- **Validation:** Pydantic 2.10+
-- **Testing:** pytest 8.3+
-- **Server:** Uvicorn with auto-reload
-
-### Response Schema
-
-```python
-{
-  "task_id": str,              # Task identifier
-  "tests_passed": int,         # Number of passing tests
-  "total_tests": int,          # Total number of tests
-  "verdict": "PASS" | "FAIL",  # Overall result
-  "runtime_ms": int,           # Execution time
-  "failure_type": str | null,  # "apply_error" | "test_failure" | null
-  "logs_uri": str              # Path to detailed logs
-}
-```
-
-### Implementation Note
-
-This is a **demo implementation** for the AgentBeats platform. The test execution is simulated with predetermined results for demonstration purposes. A production version would:
-
-- Load real SWE-Bench JSON task definitions
-- Clone actual repositories via git
-- Run real pytest executions in Docker containers
-- Parse actual test output
-
-The **architecture and API design are production-ready**; only the test execution layer needs to be swapped from simulation to real execution.
-
-## Requirements
-
-- Python 3.11 or higher
-- 100MB disk space (excluding venv)
-- macOS, Linux, or Windows (WSL recommended)
+Key packages:
+- `a2a-sdk[http-server]>=0.3.8` - A2A protocol
+- `swebench>=2.1.0` - SWE-bench harness
+- `datasets>=2.0.0` - HuggingFace datasets
+- `typer>=0.19.2` - CLI framework
 
 ## License
 

@@ -77,9 +77,8 @@ logs/*.log
 runs/*/
 *.log
 
-# Keep directory structure but ignore contents
-!logs/.gitkeep
-!runs/.gitkeep
+# Keep directory structure
+!data/.gitkeep
 
 # Environment variables
 .env
@@ -121,3 +120,14 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# SWE-bench specific
+data/swebench_cache/
+report.json
+logs/run_evaluation/
+
+# Temporary test files
+*.tmp
+*.temp
+tmp/
+temp/

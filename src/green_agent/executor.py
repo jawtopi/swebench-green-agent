@@ -417,7 +417,19 @@ Details:
             error_info = f" - {r['error']}" if r.get("error") else ""
             summary += f"  [{status}] {r['task_id']}: {r.get('verdict', 'FAIL')}{error_info}\n"
 
-        logger.info("Green agent: Evaluation complete")
+        # Log summary statistics
+        logger.info("=" * 60)
+        logger.info("GREEN AGENT: EVALUATION COMPLETE")
+        logger.info("=" * 60)
+        logger.info(f"Dataset: {dataset}")
+        logger.info(f"Total tasks: {total_tasks}")
+        logger.info(f"Resolved: {resolved_count}/{total_tasks} ({resolution_rate:.1f}%)")
+        logger.info(f"Failed: {failed_count}")
+        logger.info(f"Errors: {error_count}")
+        logger.info(f"Total runtime: {total_runtime_ms/1000:.1f}s")
+        logger.info(f"Avg per task: {total_runtime_ms/total_tasks/1000:.1f}s" if total_tasks > 0 else "N/A")
+        logger.info("=" * 60)
+
         await event_queue.enqueue_event(new_agent_text_message(summary))
 
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:

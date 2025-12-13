@@ -456,13 +456,6 @@ def start_green_agent(
 
     logger.info(f"Starting SWE-bench green agent on {host}:{port}...")
 
-    # Debug: log all environment variables containing agent/id
-    logger.info("=== Environment variables ===")
-    for key, value in os.environ.items():
-        if any(x in key.lower() for x in ['agent', 'id', 'url', 'host', 'port', 'https', 'cloud']):
-            logger.info(f"  {key}={value}")
-    logger.info("=============================")
-
     agent_card_dict = load_agent_card_toml(agent_name)
 
     # AGENT_URL from controller takes highest priority (contains full path with agent ID)

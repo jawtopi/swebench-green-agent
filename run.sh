@@ -11,6 +11,8 @@ echo "AGENT_ID=$AGENT_ID" >&2
 echo "HTTPS_ENABLED=$HTTPS_ENABLED" >&2
 echo "HOST=$HOST" >&2
 echo "AGENT_PORT=$AGENT_PORT" >&2
+echo "--- All env vars containing 'AGENT' or 'ID' ---" >&2
+env | grep -iE '(agent|id|cagent)' >&2
 echo "==========================" >&2
 
 # Activate virtual environment if it exists (local dev)

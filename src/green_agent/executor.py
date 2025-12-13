@@ -32,7 +32,7 @@ def load_agent_card_toml(agent_name: str) -> dict:
         return tomllib.load(f)
 
 
-def load_swebench_tasks(dataset: str = "lite", task_ids: Optional[list[str]] = None) -> list[dict]:
+def load_swebench_tasks(dataset: str = "verified", task_ids: Optional[list[str]] = None) -> list[dict]:
     """
     Load SWE-bench tasks from HuggingFace datasets.
 
@@ -53,7 +53,7 @@ def load_swebench_tasks(dataset: str = "lite", task_ids: Optional[list[str]] = N
         "test": "princeton-nlp/SWE-bench",
     }
 
-    hf_dataset = dataset_map.get(dataset.lower(), "princeton-nlp/SWE-bench_Lite")
+    hf_dataset = dataset_map.get(dataset.lower(), "princeton-nlp/SWE-bench_Verified")
     logger.info(f"Loading SWE-bench dataset: {hf_dataset}")
 
     # Load the dataset (test split contains the evaluation tasks)
@@ -340,7 +340,7 @@ class SWEBenchGreenAgentExecutor(AgentExecutor):
             return
 
         # Extract configuration
-        dataset = task_config.get("dataset", "lite")
+        dataset = task_config.get("dataset", "verified")
         task_ids = task_config.get("task_ids", None)
         timeout = task_config.get("timeout", 600)
         max_workers = task_config.get("max_workers", DEFAULT_MAX_WORKERS)

@@ -440,10 +440,33 @@ def start_green_agent(
         port: Port to listen on
         public_url: Public URL for the agent card (e.g., Cloudflare tunnel URL)
     """
+    import os
+
     logger.info(f"Starting SWE-bench green agent on {host}:{port}...")
 
+    # Debug: log all environment variables containing agent/id
+    logger.info("=== Environment variables ===")
+    for key, value in os.environ.items():
+        if any(x in key.lower() for x in ['agent', 'id', 'url', 'host', 'port', 'https', 'cloud']):
+            logger.info(f"  {key}={value}")
+    logger.info("=============================")
+
     agent_card_dict = load_agent_card_toml(agent_name)
-    # Use public_url if provided, otherwise construct from host:port
+
+    # Try to construct public URL from environment variables if not provided
+    if not public_url:
+        cloudrun_host = os.environ.get("CLOUDRUN_HOST")
+        https_enabled = os.environ.get("HTTPS_ENABLED", "").lower() == "true"
+        agent_id = os.environ.get("AGENT_ID") or os.environ.get("CAGENT_ID")
+
+        if cloudrun_host:
+            protocol = "https" if https_enabled else "http"
+            public_url = f"{protocol}://{cloudrun_host}"
+            if agent_id:
+                public_url = f"{public_url}/to_agent/{agent_id}"
+            logger.info(f"Constructed public URL from env: {public_url}")
+
+    # Use public_url if provided/constructed, otherwise construct from host:port
     url = public_url if public_url else f"http://{host}:{port}"
     agent_card_dict["url"] = url
     logger.info(f"Agent card URL: {url}")

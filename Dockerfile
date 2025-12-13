@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 WORKDIR /app
 
@@ -10,14 +10,20 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
+COPY main.py .
+COPY run.sh .
+COPY Procfile .
 COPY src/ ./src/
 COPY data/ ./data/
 
 # Create necessary directories
 RUN mkdir -p logs runs
 
-# Expose port
-EXPOSE 8000
+# Make run.sh executable
+RUN chmod +x run.sh
 
-# Run the application
-CMD ["uvicorn", "src.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Expose port (Railway sets PORT env var)
+EXPOSE 8010
+
+# Run via agentbeats controller
+CMD ["agentbeats", "run_ctrl"]

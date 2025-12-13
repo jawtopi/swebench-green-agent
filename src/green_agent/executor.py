@@ -13,7 +13,7 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import AgentCard, SendMessageSuccessResponse, Message
+from a2a.types import AgentCard, SendMessageSuccessResponse, Message, Task
 from a2a.utils import new_agent_text_message, get_text_parts
 
 from src.green_agent.a2a_utils import parse_tags, send_message, format_swebench_task_message
@@ -138,17 +138,43 @@ async def evaluate_single_task(
             return result
 
         res_result = res_root.result
-        if not isinstance(res_result, Message):
-            result["error"] = "White agent returned non-message response"
+
+        # Extract text from response - handle both Message and Task types
+        white_text = None
+
+        if isinstance(res_result, Message):
+            # Direct message response
+            text_parts = get_text_parts(res_result.parts)
+            if text_parts:
+                white_text = text_parts[0]
+
+        elif isinstance(res_result, Task):
+            # Task response - extract from artifacts and status message
+            text_content = []
+
+            # Check artifacts
+            if res_result.artifacts:
+                for artifact in res_result.artifacts:
+                    if artifact.parts:
+                        parts_text = get_text_parts(artifact.parts)
+                        text_content.extend(parts_text)
+
+            # Check status message
+            if res_result.status and res_result.status.message:
+                status_text = get_text_parts(res_result.status.message.parts)
+                text_content.extend(status_text)
+
+            if text_content:
+                white_text = '\n'.join(text_content)
+
+        else:
+            result["error"] = f"White agent returned unexpected response type: {type(res_result)}"
             return result
 
-        # Extract text from response
-        text_parts = get_text_parts(res_result.parts)
-        if not text_parts:
+        if not white_text:
             result["error"] = "White agent returned empty response"
             return result
 
-        white_text = text_parts[0]
         logger.info(f"Received response from white agent for {task_id}")
 
         # Parse patch from response (expect <patch>...</patch> tags)
@@ -399,7 +425,12 @@ Details:
         raise NotImplementedError
 
 
-def start_green_agent(agent_name: str = "swebench_green_agent", host: str = "localhost", port: int = 9001):
+def start_green_agent(
+    agent_name: str = "swebench_green_agent",
+    host: str = "localhost",
+    port: int = 9001,
+    public_url: Optional[str] = None,
+):
     """
     Start the SWE-bench green agent server.
 
@@ -407,21 +438,105 @@ def start_green_agent(agent_name: str = "swebench_green_agent", host: str = "loc
         agent_name: Name of the agent (must match TOML file name)
         host: Host to bind to
         port: Port to listen on
+        public_url: Public URL for the agent card (e.g., Cloudflare tunnel URL)
     """
     logger.info(f"Starting SWE-bench green agent on {host}:{port}...")
 
     agent_card_dict = load_agent_card_toml(agent_name)
-    url = f"http://{host}:{port}"
+    # Use public_url if provided, otherwise construct from host:port
+    url = public_url if public_url else f"http://{host}:{port}"
     agent_card_dict["url"] = url
+    logger.info(f"Agent card URL: {url}")
+
+    import uuid
+    # Generate a stable agent instance ID
+    agent_instance_id = uuid.uuid4().hex[:32]
 
     request_handler = DefaultRequestHandler(
         agent_executor=SWEBenchGreenAgentExecutor(),
         task_store=InMemoryTaskStore(),
     )
 
-    app = A2AStarletteApplication(
+    a2a_app = A2AStarletteApplication(
         agent_card=AgentCard(**agent_card_dict),
         http_handler=request_handler,
     )
 
-    uvicorn.run(app.build(), host=host, port=port)
+    # Build the Starlette app and add AgentBeats-required endpoints
+    from starlette.responses import JSONResponse
+    from starlette.routing import Route
+
+    async def status_endpoint(_request):
+        """Health check endpoint for AgentBeats platform."""
+        return JSONResponse({
+            "status": "ok",
+            "agent": agent_name,
+            "running_agents": 1,
+            "maintained_agents": 1,
+            "agents": [
+                {
+                    "id": agent_instance_id,
+                    "status": "RUNNING",
+                    "url": url,  # Platform will append /.well-known/agent-card.json
+                }
+            ]
+        })
+
+    async def info_endpoint(_request):
+        """Controller info endpoint for AgentBeats platform."""
+        return JSONResponse({
+            "running_agents": 1,
+            "maintained_agents": 1,
+            "starting_command": "python main.py serve",
+            "agents": [
+                {
+                    "id": agent_instance_id,
+                    "status": "RUNNING",
+                    "port": port,
+                    "url": url,  # Platform will append /.well-known/agent-card.json
+                }
+            ]
+        })
+
+    async def agents_list_endpoint(_request):
+        """List all agents for AgentBeats platform."""
+        return JSONResponse({
+            "agents": [
+                {
+                    "id": agent_instance_id,
+                    "url": url,  # Platform will append /.well-known/agent-card.json
+                    "agent_card": agent_card_dict,  # Include full agent card
+                    "status": "RUNNING",
+                }
+            ]
+        })
+
+    # Get the A2A app routes and add AgentBeats controller endpoints
+    starlette_app = a2a_app.build()
+
+    # Add CORS middleware to allow AgentBeats platform to fetch agent card
+    from starlette.middleware.cors import CORSMiddleware
+    starlette_app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Allow all origins for AgentBeats platform
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    # Add endpoint for agent-card.json (AgentBeats expects this path)
+    async def agent_card_endpoint(_request):
+        """Serve agent card at /.well-known/agent-card.json for AgentBeats."""
+        return JSONResponse(agent_card_dict)
+
+    # Add controller endpoints
+    starlette_app.routes.append(Route("/status", status_endpoint, methods=["GET"]))
+    starlette_app.routes.append(Route("/info", info_endpoint, methods=["GET"]))
+    starlette_app.routes.append(Route("/agents", agents_list_endpoint, methods=["GET"]))
+    starlette_app.routes.append(Route("/.well-known/agent-card.json", agent_card_endpoint, methods=["GET"]))
+
+    logger.info(f"Agent instance ID: {agent_instance_id}")
+    logger.info(f"Agent URL: {url}")
+    logger.info(f"Agent card available at: {url}/.well-known/agent-card.json")
+
+    uvicorn.run(starlette_app, host=host, port=port)

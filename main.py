@@ -33,12 +33,17 @@ def serve(
     agent_name: str = typer.Option(
         "swebench_green_agent", "--name", "-n", help="Agent name (must match TOML file)"
     ),
+    public_url: Optional[str] = typer.Option(
+        None, "--url", "-u", help="Public URL for agent card (e.g., Cloudflare tunnel URL)"
+    ),
 ):
     """Start the SWE-bench green agent A2A server."""
     from src.green_agent import start_green_agent
 
     typer.echo(f"Starting SWE-bench green agent on {host}:{port}...")
-    start_green_agent(agent_name=agent_name, host=host, port=port)
+    if public_url:
+        typer.echo(f"Agent card URL: {public_url}")
+    start_green_agent(agent_name=agent_name, host=host, port=port, public_url=public_url)
 
 
 @app.command()

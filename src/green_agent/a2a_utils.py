@@ -85,7 +85,7 @@ async def send_message(
     Args:
         url: The agent's base URL
         message: Text message to send
-        task_id: Optional task ID for tracking
+        task_id: Optional SWE-bench task ID (for logging only, not sent to A2A)
         context_id: Optional context ID for conversation continuity
         timeout: Request timeout in seconds
 
@@ -100,12 +100,14 @@ async def send_message(
     client = A2AClient(httpx_client=httpx_client, agent_card=card)
 
     message_id = uuid.uuid4().hex
+    # Note: Don't set task_id in the A2A message - let the receiver create a new task.
+    # The SWE-bench task_id is passed in the message content, not as A2A metadata.
     params = MessageSendParams(
         message=Message(
             role=Role.user,
             parts=[Part(root=TextPart(text=message))],
             message_id=message_id,
-            task_id=task_id,
+            task_id=None,  # Let receiver create new task
             context_id=context_id,
         )
     )
@@ -131,13 +133,17 @@ def format_swebench_task_message(
 
     The white agent should return a unified diff patch in response.
     """
+    repo_url = f"https://github.com/{repo}"
+
     message = f"""You are a software engineer tasked with fixing a bug in an open source project.
 
 <task_id>{task_id}</task_id>
 
 <repository>{repo}</repository>
 
-<base_commit>{base_commit[:12] if base_commit else "latest"}</base_commit>
+<repo_url>{repo_url}</repo_url>
+
+<base_commit>{base_commit if base_commit else "latest"}</base_commit>
 
 <problem_statement>
 {problem_statement}

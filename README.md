@@ -61,7 +61,7 @@ This Green Agent:
 
 ```bash
 # Clone the repository
-git clone https://github.com/YOUR_USERNAME/swebench-green-agent.git
+git clone https://github.com/jawtopi/swebench-green-agent.git
 cd swebench-green-agent
 
 # Create and activate virtual environment

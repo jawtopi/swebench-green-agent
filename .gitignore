@@ -126,6 +126,9 @@ data/swebench_cache/
 report.json
 logs/run_evaluation/
 
+# AgentBeats controller state
+.ab/
+
 # Temporary test files
 *.tmp
 *.temp

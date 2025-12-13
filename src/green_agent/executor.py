@@ -453,28 +453,29 @@ def start_green_agent(
 
     agent_card_dict = load_agent_card_toml(agent_name)
 
-    # Try to get public URL from environment variables if not provided
-    if not public_url:
-        # First check if controller provides the full AGENT_URL
-        agent_url = os.environ.get("AGENT_URL")
-        if agent_url:
-            public_url = agent_url
-            logger.info(f"Using AGENT_URL from env: {public_url}")
+    # AGENT_URL from controller takes highest priority (contains full path with agent ID)
+    agent_url = os.environ.get("AGENT_URL")
+    if agent_url:
+        url = agent_url
+        logger.info(f"Using AGENT_URL from env: {url}")
+    elif public_url:
+        url = public_url
+        logger.info(f"Using provided public_url: {url}")
+    else:
+        # Fallback: construct from CLOUDRUN_HOST or host:port
+        cloudrun_host = os.environ.get("CLOUDRUN_HOST")
+        https_enabled = os.environ.get("HTTPS_ENABLED", "").lower() == "true"
+        agent_id = os.environ.get("AGENT_ID") or os.environ.get("CAGENT_ID")
+
+        if cloudrun_host:
+            protocol = "https" if https_enabled else "http"
+            url = f"{protocol}://{cloudrun_host}"
+            if agent_id:
+                url = f"{url}/to_agent/{agent_id}"
+            logger.info(f"Constructed URL from env: {url}")
         else:
-            # Fallback: construct from CLOUDRUN_HOST
-            cloudrun_host = os.environ.get("CLOUDRUN_HOST")
-            https_enabled = os.environ.get("HTTPS_ENABLED", "").lower() == "true"
-            agent_id = os.environ.get("AGENT_ID") or os.environ.get("CAGENT_ID")
-
-            if cloudrun_host:
-                protocol = "https" if https_enabled else "http"
-                public_url = f"{protocol}://{cloudrun_host}"
-                if agent_id:
-                    public_url = f"{public_url}/to_agent/{agent_id}"
-                logger.info(f"Constructed public URL from env: {public_url}")
-
-    # Use public_url if provided/constructed, otherwise construct from host:port
-    url = public_url if public_url else f"http://{host}:{port}"
+            url = f"http://{host}:{port}"
+            logger.info(f"Using default URL: {url}")
     agent_card_dict["url"] = url
     logger.info(f"Agent card URL: {url}")
 

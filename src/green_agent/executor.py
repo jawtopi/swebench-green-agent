@@ -21,7 +21,7 @@ from src.harness.swebench_runner import run_swebench_task
 from src.core.logger import logger
 
 # Default number of parallel workers for batch evaluation
-DEFAULT_MAX_WORKERS = 4
+DEFAULT_MAX_WORKERS = 25
 
 
 def load_agent_card_toml(agent_name: str) -> dict:

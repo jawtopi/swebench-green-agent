@@ -196,7 +196,9 @@ async def evaluate_single_task(
             return result
 
         result["patch"] = patch
-        logger.info(f"Extracted patch for {task_id} ({len(patch)} bytes)")
+        # Log truncated patch preview (first 200 chars)
+        patch_preview = patch[:200].replace('\n', '\\n') + ('...' if len(patch) > 200 else '')
+        logger.info(f"Extracted patch for {task_id} ({len(patch)} bytes): {patch_preview}")
 
         # Evaluate the patch using SWE-bench harness
         logger.info(f"Running SWE-bench evaluation for {task_id}...")

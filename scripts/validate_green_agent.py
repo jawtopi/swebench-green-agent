@@ -9,30 +9,27 @@ Usage:
     python scripts/validate_green_agent.py
 """
 
+import sys
+from pathlib import Path
+
+# Add repo root to path
+repo_root = Path(__file__).parent.parent
+sys.path.insert(0, str(repo_root))
+
 from src.harness.swebench_runner import run_swebench_task
 
-# Test Case 1: Known good patch (should PASS)
-# This is the ground-truth patch for django__django-10914
-GOOD_PATCH_DJANGO_10914 = '''diff --git a/django/conf/global_settings.py b/django/conf/global_settings.py
+# Test Case 1: Partial fix patch (should FAIL - incomplete fix)
+# This patch applies but doesn't fully fix the issue
+PARTIAL_PATCH = '''diff --git a/django/conf/global_settings.py b/django/conf/global_settings.py
 --- a/django/conf/global_settings.py
 +++ b/django/conf/global_settings.py
-@@ -304,7 +304,7 @@ def gettext_noop(s):
+@@ -303,6 +303,7 @@
+ # The directory to store uploaded files temporarily.
  FILE_UPLOAD_TEMP_DIR = None
 
- # The numeric mode to set newly-uploaded files to. The value should be a mode
--# you'd pass directly to os.chmod; see https://docs.python.org/3/library/os.html#os.chmod.
-+# you'd pass directly to os.chmod; see https://docs.python.org/library/os.html#os.chmod.
++# Partial fix - this comment doesn't actually fix the bug
+ # The numeric mode to set newly-uploaded files to.
  FILE_UPLOAD_PERMISSIONS = 0o644
-
- # The numeric mode to apply to directories created in the process of uploading files.
-diff --git a/django/core/files/uploadhandler.py b/django/core/files/uploadhandler.py
---- a/django/core/files/uploadhandler.py
-+++ b/django/core/files/uploadhandler.py
-@@ -1,4 +1,5 @@
- """
-+# Set default file upload permissions
- File upload handlers.
- """
 '''
 
 # Test Case 2: Empty patch (should FAIL - no fix applied)
@@ -57,18 +54,18 @@ def run_validation():
 
     results = []
 
-    # Test Case 1: Good patch
-    print("Test Case 1: Known good patch for django__django-10914")
+    # Test Case 1: Partial fix patch
+    print("Test Case 1: Partial fix patch (applies but doesn't fix bug)")
     print("-" * 60)
     result1 = run_swebench_task(
         task_id="django__django-10914",
-        patch_diff=GOOD_PATCH_DJANGO_10914,
+        patch_diff=PARTIAL_PATCH,
     )
     print(f"  Verdict: {result1.verdict}")
     print(f"  Resolved: {result1.resolved}")
     print(f"  Failure Type: {result1.failure_type}")
-    print(f"  Expected: PASS (resolved=True)")
-    results.append(("Good Patch", result1.verdict, "PASS"))
+    print(f"  Expected: FAIL (patch applies but tests still fail)")
+    results.append(("Partial Patch", result1.verdict, "FAIL"))
     print()
 
     # Test Case 2: Empty patch

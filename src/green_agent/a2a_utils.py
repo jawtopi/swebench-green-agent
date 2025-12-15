@@ -33,7 +33,7 @@ def parse_tags(str_with_tags: str) -> Dict[str, str]:
 
 async def get_agent_card(url: str) -> Optional[AgentCard]:
     """Get agent card from a remote agent."""
-    httpx_client = httpx.AsyncClient()
+    httpx_client = httpx.AsyncClient(follow_redirects=True)
     resolver = A2ACardResolver(httpx_client=httpx_client, base_url=url)
 
     try:
@@ -96,7 +96,7 @@ async def send_message(
     if card is None:
         raise RuntimeError(f"Could not get agent card from {url}")
 
-    httpx_client = httpx.AsyncClient(timeout=timeout)
+    httpx_client = httpx.AsyncClient(timeout=timeout, follow_redirects=True)
     client = A2AClient(httpx_client=httpx_client, agent_card=card)
 
     message_id = uuid.uuid4().hex

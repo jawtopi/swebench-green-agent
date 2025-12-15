@@ -21,7 +21,7 @@ from src.harness.swebench_runner import run_swebench_task
 from src.core.logger import logger
 
 # Default number of parallel workers for batch evaluation
-DEFAULT_MAX_WORKERS = 4
+DEFAULT_MAX_WORKERS = 10
 DEFAULT_SAMPLE_SIZE = 25  # Random subset of tasks when no specific task_ids provided
 
 

@@ -21,7 +21,8 @@ from src.harness.swebench_runner import run_swebench_task
 from src.core.logger import logger
 
 # Default number of parallel workers for batch evaluation
-DEFAULT_MAX_WORKERS = 25
+DEFAULT_MAX_WORKERS = 4
+DEFAULT_SAMPLE_SIZE = 25  # Random subset of tasks when no specific task_ids provided
 
 
 def load_agent_card_toml(agent_name: str) -> dict:
@@ -32,17 +33,19 @@ def load_agent_card_toml(agent_name: str) -> dict:
         return tomllib.load(f)
 
 
-def load_swebench_tasks(dataset: str = "verified", task_ids: Optional[list[str]] = None) -> list[dict]:
+def load_swebench_tasks(dataset: str = "verified", task_ids: Optional[list[str]] = None, sample_size: Optional[int] = None) -> list[dict]:
     """
     Load SWE-bench tasks from HuggingFace datasets.
 
     Args:
         dataset: One of 'lite' (300), 'verified' (500), or 'full' (2294)
         task_ids: Optional list of specific task IDs to load
+        sample_size: Optional number of random tasks to sample (ignored if task_ids provided)
 
     Returns:
         List of task dicts with instance_id, problem_statement, repo, hints_text, base_commit
     """
+    import random
     from datasets import load_dataset
 
     # Map dataset name to HuggingFace dataset
@@ -75,7 +78,13 @@ def load_swebench_tasks(dataset: str = "verified", task_ids: Optional[list[str]]
             "base_commit": item.get("base_commit", ""),
         })
 
-    logger.info(f"Loaded {len(tasks)} tasks from {hf_dataset}")
+    # Random sample if sample_size specified and no specific task_ids were provided
+    if sample_size and not task_ids and len(tasks) > sample_size:
+        tasks = random.sample(tasks, sample_size)
+        logger.info(f"Randomly sampled {sample_size} tasks from {hf_dataset}")
+    else:
+        logger.info(f"Loaded {len(tasks)} tasks from {hf_dataset}")
+
     return tasks
 
 
@@ -344,15 +353,17 @@ class SWEBenchGreenAgentExecutor(AgentExecutor):
         task_ids = task_config.get("task_ids", None)
         timeout = task_config.get("timeout", 600)
         max_workers = task_config.get("max_workers", DEFAULT_MAX_WORKERS)
+        # Use default sample size if no specific task_ids provided
+        sample_size = task_config.get("sample_size", DEFAULT_SAMPLE_SIZE if not task_ids else None)
 
         logger.info(
             f"Green agent: Configuration - dataset={dataset}, "
-            f"task_ids={task_ids}, timeout={timeout}, max_workers={max_workers}"
+            f"task_ids={task_ids}, timeout={timeout}, max_workers={max_workers}, sample_size={sample_size}"
         )
 
         # Load SWE-bench tasks
         logger.info("Green agent: Loading SWE-bench tasks...")
-        tasks = load_swebench_tasks(dataset=dataset, task_ids=task_ids)
+        tasks = load_swebench_tasks(dataset=dataset, task_ids=task_ids, sample_size=sample_size)
 
         if not tasks:
             await event_queue.enqueue_event(

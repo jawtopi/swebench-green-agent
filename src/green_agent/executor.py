@@ -95,7 +95,7 @@ def load_swebench_tasks(dataset: str = "verified", task_ids: Optional[list[str]]
             sampled = random.sample(other_tasks, sample_size - 1)
             sampled.insert(0, always_include)
             tasks = sampled
-            logger.info(f"Randomly sampled {sample_size} tasks (including {ALWAYS_INCLUDE_TASK}) from {hf_dataset}")
+            logger.info(f"Randomly sampled {sample_size} tasks from {hf_dataset}")
         else:
             tasks = random.sample(tasks, sample_size)
             logger.info(f"Randomly sampled {sample_size} tasks from {hf_dataset}")

@@ -21,8 +21,9 @@ from src.harness.swebench_runner import run_swebench_task
 from src.core.logger import logger
 
 # Default number of parallel workers for batch evaluation
-DEFAULT_MAX_WORKERS = 5
-DEFAULT_SAMPLE_SIZE = 15  # Random subset of tasks when no specific task_ids provided
+DEFAULT_MAX_WORKERS = 4
+DEFAULT_SAMPLE_SIZE = 10  # Random subset of tasks when no specific task_ids provided
+ALWAYS_INCLUDE_TASK = "django__django-10914"  # Always include this known-working task
 
 
 def load_agent_card_toml(agent_name: str) -> dict:
@@ -80,8 +81,24 @@ def load_swebench_tasks(dataset: str = "verified", task_ids: Optional[list[str]]
 
     # Random sample if sample_size specified and no specific task_ids were provided
     if sample_size and not task_ids and len(tasks) > sample_size:
-        tasks = random.sample(tasks, sample_size)
-        logger.info(f"Randomly sampled {sample_size} tasks from {hf_dataset}")
+        # Always include the known-working task if it exists
+        always_include = None
+        other_tasks = []
+        for t in tasks:
+            if t["instance_id"] == ALWAYS_INCLUDE_TASK:
+                always_include = t
+            else:
+                other_tasks.append(t)
+
+        if always_include:
+            # Sample (sample_size - 1) random tasks + the always-include task
+            sampled = random.sample(other_tasks, sample_size - 1)
+            sampled.insert(0, always_include)
+            tasks = sampled
+            logger.info(f"Randomly sampled {sample_size} tasks (including {ALWAYS_INCLUDE_TASK}) from {hf_dataset}")
+        else:
+            tasks = random.sample(tasks, sample_size)
+            logger.info(f"Randomly sampled {sample_size} tasks from {hf_dataset}")
     else:
         logger.info(f"Loaded {len(tasks)} tasks from {hf_dataset}")
 

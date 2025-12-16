@@ -10,6 +10,8 @@ A Green Agent for the AgentBeats platform that evaluates code patches using the 
 - [Testing Green Agent Evaluation](#testing-green-agent-evaluation)
 - [Reproducing Benchmark Results](#reproducing-benchmark-results)
 - [Running on AgentBeats](#running-on-agentbeats)
+- [GCP VM Deployment Guide](#gcp-vm-deployment-guide)
+- [Demo Script](#demo-script)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
 - [Metrics and Evaluation](#metrics-and-evaluation)
@@ -128,7 +130,7 @@ python main.py evaluate \
   --task-ids django__django-10914 \
   --dataset verified
 
-# Batch evaluation (10 random tasks)
+# Batch evaluation (5 random tasks)
 python main.py evaluate \
   --white-agent-url http://localhost:9002 \
   --green-url http://localhost:9001 \
@@ -148,7 +150,7 @@ python main.py launch \
 
 ## Testing Green Agent Evaluation
 
-We provide a validation script to test that the green agent produces accurate evaluation results.
+We provide multiple scripts to test that the green agent produces accurate evaluation results.
 
 ### Run Validation Tests
 
@@ -229,7 +231,7 @@ Results can be compared against the [SWE-bench Leaderboard](https://www.swebench
 
 ## Running on AgentBeats
 
-### Option 1: Cloudflare Tunnel (Recommended)
+### Option 1: Cloudflare Tunnel (Quick Testing)
 
 Run locally with Docker and expose via Cloudflare tunnel:
 
@@ -251,28 +253,230 @@ agentbeats run_ctrl
 
 Then register your agent on AgentBeats using the Cloudflare tunnel URL.
 
-### Option 2: Cloud Deployment (Railway)
+**Note:** Cloudflare tunnels have a 100-second timeout limit which may cause issues with long-running evaluations. For production use, see the GCP VM deployment below.
 
-Deploy to Railway or similar platform:
+### Option 2: GCP VM Deployment (Recommended for Production)
 
-```bash
-# Set environment variables in Railway dashboard:
-# CLOUDRUN_HOST=your-railway-url.up.railway.app
-# HTTPS_ENABLED=true
-
-# The Dockerfile handles the rest
-```
-
-Note: Railway doesn't support Docker-in-Docker, so full SWE-bench evaluation requires the Cloudflare tunnel approach.
+See [GCP VM Deployment Guide](#gcp-vm-deployment-guide) for detailed instructions on setting up a VM with Docker support and proper timeout configuration.
 
 ### AgentBeats Configuration
 
-Default evaluation settings:
-- **Sample Size**: 10 random tasks from SWE-bench Verified
-- **Parallel Workers**: 4
+Default evaluation settings (optimized for AgentBeats platform):
+- **Sample Size**: 5 random tasks from SWE-bench Verified
+- **Parallel Workers**: 1 (to avoid overwhelming white agent)
 - **Timeout**: 600 seconds per task
 
 These can be configured via the task_config sent to the green agent.
+
+## GCP VM Deployment Guide
+
+For production AgentBeats deployment, we recommend using a GCP Compute Engine VM to avoid Cloudflare tunnel timeout limitations.
+
+### Prerequisites
+
+- GCP account with Compute Engine enabled
+- A domain name (for SSL certificate)
+- SSH access configured
+
+### Step 1: Create VM Instance
+
+```bash
+# Create VM via gcloud CLI
+gcloud compute instances create swebench-green-agent \
+  --project=YOUR_PROJECT_ID \
+  --zone=us-central1-a \
+  --machine-type=e2-standard-4 \
+  --image-family=ubuntu-2204-lts \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=100GB \
+  --boot-disk-type=pd-balanced
+```
+
+Or use the GCP Console:
+- **Machine type**: e2-standard-4 (4 vCPU, 16GB RAM) or larger
+- **OS**: Ubuntu 22.04 LTS
+- **Disk**: 100GB SSD
+- **Firewall**: Allow HTTP (80) and HTTPS (443)
+
+### Step 2: Install Dependencies
+
+SSH into the VM and run:
+
+```bash
+# Update system
+sudo apt update && sudo apt upgrade -y
+
+# Install Docker
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Verify Docker works
+docker run hello-world
+
+# Install Python 3.11+ dependencies
+sudo apt install -y python3-pip python3-venv git nginx certbot python3-certbot-nginx
+
+# Clone repository
+git clone https://github.com/jawtopi/swebench-green-agent.git
+cd swebench-green-agent
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Verify installation
+python main.py status
+```
+
+### Step 3: Configure Nginx with SSL
+
+```bash
+# Create nginx config
+sudo tee /etc/nginx/sites-available/swebench << 'EOF'
+server {
+    listen 80;
+    server_name YOUR_DOMAIN.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:8010;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        # Extended timeouts for long-running evaluations
+        proxy_read_timeout 3600s;
+        proxy_connect_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+EOF
+
+# Enable the site
+sudo ln -sf /etc/nginx/sites-available/swebench /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+
+# Get SSL certificate (replace with your domain)
+sudo certbot --nginx -d YOUR_DOMAIN.com
+```
+
+### Step 4: Configure DNS
+
+Point your domain to the VM's external IP:
+- Create an A record pointing to your VM's external IP address
+
+### Step 5: Create Startup Script
+
+```bash
+# Create run.sh
+cat > ~/swebench-green-agent/run.sh << 'EOF'
+#!/bin/bash
+cd ~/swebench-green-agent
+source venv/bin/activate
+python main.py serve --host 0.0.0.0 --port ${AGENT_PORT:-8010}
+EOF
+chmod +x ~/swebench-green-agent/run.sh
+```
+
+### Step 6: Run the Green Agent
+
+```bash
+# Set environment variables
+export CLOUDRUN_HOST="YOUR_DOMAIN.com"
+export HTTPS_ENABLED="true"
+export HOST="0.0.0.0"
+export AGENT_PORT="8010"
+
+# Start the agent
+cd ~/swebench-green-agent
+./run.sh
+```
+
+Or run with agentbeats controller:
+```bash
+agentbeats run_ctrl
+```
+
+### Step 7: Register on AgentBeats
+
+1. Go to the AgentBeats platform
+2. Register your green agent with URL: `https://YOUR_DOMAIN.com`
+3. The platform will discover your agent via `/.well-known/agent-card.json`
+
+### Troubleshooting VM Deployment
+
+| Issue | Solution |
+|-------|----------|
+| 504 Gateway Timeout | Increase nginx proxy_read_timeout |
+| White agent 503 errors | Reduce max_workers to 1 |
+| Docker permission denied | Run `sudo usermod -aG docker $USER` and re-login |
+| SSL certificate issues | Run `sudo certbot renew --dry-run` |
+
+## Demo Script
+
+We provide an interactive demo script that showcases different evaluation scenarios.
+
+### Running the Demo
+
+```bash
+python scripts/demo_examples.py
+```
+
+### Demo Scenarios
+
+The demo walks through 5 evaluation examples:
+
+| Example | Type | Expected Result | Description |
+|---------|------|-----------------|-------------|
+| 1 | Gold Patch | PASS | Official django__django-10914 patch from SWE-bench |
+| 2 | Gold Patch | PASS | Official django__django-16493 patch from SWE-bench |
+| 3 | Malformed | FAIL (apply_error) | Text explanation instead of valid diff |
+| 4 | Wrong Value | FAIL (test_failure) | Patch applies but uses wrong value (0o755 vs 0o644) |
+| 5 | Empty | FAIL | No patch provided |
+
+The demo uses real gold patches fetched from the SWE-bench dataset (`princeton-nlp/SWE-bench_Verified`) to ensure accurate PASS results.
+
+### Demo Output
+
+```
+╔══════════════════════════════════════════════════════════════════════╗
+║           SWE-bench Green Agent - Evaluation Demo                    ║
+║   Using REAL gold patches from SWE-bench dataset!                    ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+Press Enter to start Example 1 (Gold Patch PASS)...
+
+======================================================================
+  EXAMPLE 1: PASS - Django File Upload Permissions (Gold Patch)
+======================================================================
+
+Task: django__django-10914
+Issue: Set default FILE_UPLOAD_PERMISSION to 0o644
+Repository: django/django
+
+>>> Gold Patch Content (from SWE-bench)
+diff --git a/django/conf/global_settings.py b/django/conf/global_settings.py
+...
+
+>>> Evaluation Results
+  Verdict:        PASS
+  Resolved:       True
+  FAIL→PASS:      2/2 tests fixed
+  PASS→PASS:      1/1 tests still pass
+  Runtime:        45.2s
+
+✓ RESULT: PASS
+  Gold patch from SWE-bench correctly fixes the bug!
+```
 
 ## Architecture
 
@@ -283,8 +487,10 @@ swebench-green-agent/
 ├── main.py                           # CLI entry point
 ├── requirements.txt                  # Dependencies
 ├── Dockerfile                        # Container deployment
+├── run.sh                            # Startup script
 ├── scripts/
-│   └── validate_green_agent.py       # Validation test script
+│   ├── validate_green_agent.py       # Validation test script
+│   └── demo_examples.py              # Interactive demo script
 ├── src/
 │   ├── green_agent/
 │   │   ├── executor.py               # Main evaluation logic
@@ -327,8 +533,8 @@ swebench-green-agent/
   "dataset": "verified",
   "task_ids": ["django__django-10914"],
   "timeout": 600,
-  "max_workers": 4,
-  "sample_size": 10
+  "max_workers": 1,
+  "sample_size": 5
 }
 ```
 
@@ -337,15 +543,21 @@ swebench-green-agent/
 | `dataset` | `lite` (300), `verified` (500), or `full` (2294) | `verified` |
 | `task_ids` | Specific tasks or `null` for random sample | `null` |
 | `timeout` | Seconds per task | `600` |
-| `max_workers` | Parallel workers | `4` |
-| `sample_size` | Random tasks when task_ids is null | `10` |
+| `max_workers` | Parallel workers | `1` |
+| `sample_size` | Random tasks when task_ids is null | `5` |
 
 ### Environment Variables
 
 ```bash
 export SWEBENCH_TIMEOUT_SECONDS=600
-export SWEBENCH_MAX_WORKERS=4
+export SWEBENCH_MAX_WORKERS=1
 export SWEBENCH_DOCKER_NAMESPACE=swebench
+
+# For AgentBeats deployment
+export CLOUDRUN_HOST="your-domain.com"
+export HTTPS_ENABLED="true"
+export HOST="0.0.0.0"
+export AGENT_PORT="8010"
 ```
 
 ## Metrics and Evaluation
@@ -379,12 +591,12 @@ A task is **resolved** when:
 GREEN AGENT: EVALUATION COMPLETE
 ============================================================
 Dataset: verified
-Total tasks: 10
-Resolved: 1/10 (10.0%)
-Failed: 8
+Total tasks: 5
+Resolved: 1/5 (20.0%)
+Failed: 3
 Errors: 1
 Total runtime: 245.3s
-Avg per task: 24.5s
+Avg per task: 49.1s
 ============================================================
 ```
 
@@ -407,6 +619,11 @@ diff --git a/file.py b/file.py
 +    new_line
 </patch>
 ```
+
+## Repository
+
+- **GitHub**: https://github.com/jawtopi/swebench-green-agent
+- **Branch**: main
 
 ## License
 

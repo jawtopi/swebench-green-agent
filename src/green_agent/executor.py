@@ -22,7 +22,7 @@ from src.core.logger import logger
 
 # Default number of parallel workers for batch evaluation
 DEFAULT_MAX_WORKERS = 1  # Single worker to avoid overwhelming white agent
-DEFAULT_SAMPLE_SIZE = 10  # Random subset of tasks when no specific task_ids provided
+DEFAULT_SAMPLE_SIZE = 5  # Reduced for AgentBeats platform timeout
 ALWAYS_INCLUDE_TASK = "django__django-10914"  # Always include this known-working task
 
 
